@@ -1,0 +1,299 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body,
+html,
+#root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    background: #12091c;
+    color: #fff;
+}
+
+.hud-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 14px;
+    z-index: 10;
+}
+
+.hud-top,
+.hud-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.hud-bottom {
+    align-items: flex-end;
+}
+
+.glass-panel {
+    pointer-events: auto;
+    background: linear-gradient(145deg, rgba(36, 18, 52, 0.88), rgba(20, 10, 32, 0.92));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid rgba(253, 224, 71, 0.38);
+    border-radius: 20px;
+    padding: 12px 16px;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.55),
+        inset 0 1px 1px rgba(255, 255, 255, 0.15);
+}
+
+/* Khung chứa các nút hành động: Căn đều khoảng cách trên cả PC và Mobile */
+.action-buttons-scroll {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobile-controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+/* Nút Vàng Hoàng Gia (3D Glossy Game Button) */
+.btn-gold {
+    pointer-events: auto;
+    background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 55%, #d97706 100%);
+    color: #2a1205;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+    border: 1.5px solid #fef08a;
+    padding: 9px 15px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
+    box-shadow:
+        0 4px 0 #92400e,
+        0 6px 14px rgba(245, 158, 11, 0.35),
+        inset 0 1.5px 1px rgba(255, 255, 255, 0.65);
+}
+
+.btn-gold:hover {
+    filter: brightness(1.08);
+    transform: translateY(-2px);
+    box-shadow:
+        0 6px 0 #92400e,
+        0 10px 20px rgba(245, 158, 11, 0.5),
+        inset 0 1.5px 1px rgba(255, 255, 255, 0.8);
+}
+
+.btn-gold:active {
+    transform: translateY(2px);
+    box-shadow:
+        0 1px 0 #92400e,
+        0 3px 8px rgba(245, 158, 11, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* Nút Hồng Tím Lãng Mạn (3D Glossy Game Button) */
+.btn-pink {
+    pointer-events: auto;
+    background: linear-gradient(180deg, #f472b6 0%, #ec4899 55%, #be185d 100%);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    border: 1.5px solid #fbcfe8;
+    padding: 9px 15px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
+    box-shadow:
+        0 4px 0 #831843,
+        0 6px 14px rgba(236, 72, 153, 0.4),
+        inset 0 1.5px 1px rgba(255, 255, 255, 0.55);
+}
+
+.btn-pink:hover {
+    filter: brightness(1.08);
+    transform: translateY(-2px);
+    box-shadow:
+        0 6px 0 #831843,
+        0 10px 20px rgba(236, 72, 153, 0.55),
+        inset 0 1.5px 1px rgba(255, 255, 255, 0.75);
+}
+
+.btn-pink:active {
+    transform: translateY(2px);
+    box-shadow:
+        0 1px 0 #831843,
+        0 3px 8px rgba(236, 72, 153, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+.auth-backdrop {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(88, 28, 105, 0.72), rgba(12, 6, 22, 0.94));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 16px;
+    pointer-events: auto;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 440px;
+    max-height: 92vh;
+    overflow-y: auto;
+    background: linear-gradient(160deg, rgba(38, 19, 58, 0.97), rgba(22, 11, 36, 0.98));
+    border: 2px solid #f59e0b;
+    border-radius: 24px;
+    padding: 22px;
+    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.8);
+}
+
+.input-field {
+    width: 100%;
+    padding: 10px 14px;
+    margin-top: 6px;
+    margin-bottom: 12px;
+    border-radius: 999px;
+    border: 1.5px solid rgba(253, 224, 71, 0.35);
+    background: rgba(15, 8, 26, 0.9);
+    color: #fff;
+    font-size: 13.5px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-field:focus {
+    border-color: #f472b6;
+    box-shadow: 0 0 12px rgba(244, 114, 182, 0.35);
+}
+
+/* Cụm Joystick ảo nhạy mượt trên Điện thoại */
+.joystick-zone {
+    pointer-events: auto;
+    width: 116px;
+    height: 116px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.18), rgba(20, 10, 32, 0.68));
+    border: 2.5px solid rgba(253, 224, 71, 0.75);
+    position: relative;
+    touch-action: none;
+    flex-shrink: 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.joystick-knob {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fef08a, #f59e0b, #b45309);
+    border: 2px solid #fff;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+}
+
+/* CẤU HÌNH TỐI ƯU CHO MÀN HÌNH DỌC (PORTRAIT ĐIỆN THOẠI) */
+@media (max-width: 768px),
+(orientation: portrait) {
+    .hud-overlay {
+        padding: 8px;
+    }
+
+    .hud-top {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .glass-panel {
+        padding: 9px 11px;
+        border-radius: 16px;
+    }
+
+    .btn-gold,
+    .btn-pink {
+        padding: 7px 12px;
+        font-size: 11.5px;
+        box-shadow:
+            0 3px 0 rgba(0, 0, 0, 0.45),
+            0 4px 10px rgba(0, 0, 0, 0.3),
+            inset 0 1px 1px rgba(255, 255, 255, 0.5);
+    }
+
+    .hud-bottom {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .mobile-controls-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        gap: 8px;
+    }
+
+    .joystick-zone {
+        width: 104px;
+        height: 104px;
+    }
+
+    .joystick-knob {
+        width: 42px;
+        height: 42px;
+    }
+
+    .action-buttons-scroll {
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 5px;
+        scrollbar-width: none;
+    }
+
+    .action-buttons-scroll::-webkit-scrollbar {
+        display: none;
+    }
+
+    .event-log-box {
+        width: 100% !important;
+        max-height: 76px !important;
+        font-size: 11px !important;
+    }
+}

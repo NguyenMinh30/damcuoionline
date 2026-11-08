@@ -1,0 +1,8 @@
+# Bỏ qua node_modules ở mọi thư mục
+node_modules/
+**/node_modules/
+
+# Bỏ qua file môi trường
+.env
+.env.*
+!.env.example
