@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import WeddingScene3D from './components/WeddingScene3D';
 
-const BACKEND_URL = 'http://localhost:4000';
+// Create React App: trên Vercel cùng domain gọi /api và /socket.io tương đối.
+// Nếu deploy Backend riêng: REACT_APP_BACKEND_URL=https://backend-cua-ban.example.
+// Chạy local: dùng proxy trong client/package.json tới localhost:4000.
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
 export default function App() {
     const [authMode, setAuthMode] = useState('login');
@@ -17,6 +20,7 @@ export default function App() {
         role: 'groom'
     });
     const [statusMsg, setStatusMsg] = useState('');
+    const [socketStatus, setSocketStatus] = useState('offline');
 
     // Trạng thái 2 Map: room_1 (Nhà Quê - 500 người) | room_2 (Rừng Hoa - 500 người)
     const [currentRoom, setCurrentRoom] = useState('room_1');
@@ -54,52 +58,71 @@ export default function App() {
     const socketRef = useRef(null);
     const joystickDeltaRef = useRef({ x: 0, y: 0 });
     const joystickActiveRef = useRef(false);
+    const lastPositionSaveAtRef = useRef(0);
+    const lastMoveSentAtRef = useRef(0);
 
     const addLog = (msg) => {
         setEventLogs((prev) => [msg, ...prev.slice(0, 7)]);
     };
 
     useEffect(() => {
-        const savedSession = localStorage.getItem('dco_active_user');
-        if (savedSession) {
-            try {
-                const parsed = JSON.parse(savedSession);
-                if (parsed && !parsed.isGuest) {
-                    setCurrentUser({
-                        ...parsed,
-                        lastPosition: {
-                            x: Number(parsed.lastPosition?.x) || 0,
-                            z: Number(parsed.lastPosition?.z) || 8
-                        }
-                    });
-                }
-            } catch (e) {
-                console.error(e);
-            }
+        // localStorage chỉ lưu token/hiển thị; MongoDB quyết định phiên có hợp lệ hay không.
+        const token = localStorage.getItem('dco_token');
+        if (!token) {
+            localStorage.removeItem('dco_active_user');
+            return;
         }
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/auth/me`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (!res.ok || !data.user) {
+                    throw new Error(data.error || 'Phiên đăng nhập không hợp lệ.');
+                }
+                if (cancelled) return;
+                const verifiedUser = { ...data.user, isGuest: false };
+                setCurrentUser(verifiedUser);
+                setCurrentRoom(verifiedUser.lastRoom || 'room_1');
+                localStorage.setItem('dco_active_user', JSON.stringify(verifiedUser));
+            } catch (error) {
+                if (cancelled) return;
+                // Nếu API tạm thời mất kết nối: KHÔNG tự cho đăng nhập từ bộ nhớ trình duyệt.
+                setStatusMsg(error.message || 'Không thể xác thực phiên đăng nhập.');
+            }
+        })();
+        return () => { cancelled = true; };
     }, []);
 
     const persistUser = async (updatedUser) => {
         setCurrentUser(updatedUser);
         if (updatedUser.isGuest) return;
 
-        localStorage.setItem('dco_active_user', JSON.stringify(updatedUser));
-        localStorage.setItem(`dco_user_${updatedUser.username}`, JSON.stringify(updatedUser));
-
         const token = localStorage.getItem('dco_token');
-        if (token) {
-            try {
-                await fetch(`${BACKEND_URL}/api/user/save`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify(updatedUser)
-                });
-            } catch {
-                // Lưu cục bộ an toàn
-            }
+        if (!token) {
+            addLog('⚠️ Phiên đăng nhập không hợp lệ. Hãy đăng nhập lại để lưu tiến độ.');
+            return;
+        }
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/user/save`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify(updatedUser)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Không thể lưu dữ liệu.');
+            // Chỉ đánh dấu đã lưu khi API và MongoDB thực sự xác nhận.
+            localStorage.setItem('dco_active_user', JSON.stringify({ ...data.user, isGuest: false }));
+        } catch (error) {
+            console.error('Lỗi lưu tiến độ lên MongoDB:', error);
+            addLog(`⚠️ Chưa lưu được tiến độ lên máy chủ: ${error.message}`);
         }
     };
 
@@ -134,14 +157,29 @@ export default function App() {
     useEffect(() => {
         if (!currentUser) return;
 
-        const socket = io(BACKEND_URL, { reconnectionAttempts: 3 });
+        const socket = io(BACKEND_URL || window.location.origin, {
+            transports: ['websocket'],
+            reconnectionAttempts: Infinity,
+            timeout: 10000
+        });
         socketRef.current = socket;
 
         socket.on('connect', () => {
+            setSocketStatus('connecting');
             socket.emit('join_room', { roomId: currentRoom, playerProfile: currentUser });
+        });
+        socket.on('connect_error', (err) => {
+            setSocketStatus('offline');
+            console.error('Socket.IO chưa kết nối:', err.message);
+        });
+        socket.on('disconnect', () => setSocketStatus('offline'));
+        socket.on('room_full', (data) => {
+            setSocketStatus('offline');
+            addLog(`⚠️ ${data.message}`);
         });
 
         socket.on('room_state', (data) => {
+            setSocketStatus('connected');
             const others = { ...data.players };
             delete others[socket.id];
             setRemotePlayers(others);
@@ -255,124 +293,60 @@ export default function App() {
             });
         });
 
-        return () => socket.disconnect();
+        return () => {
+            setSocketStatus('offline');
+            socket.disconnect();
+            if (socketRef.current === socket) socketRef.current = null;
+        };
     }, [currentUser?.username, currentRoom]);
-
-    async function sha256(str) {
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-        return Array.from(new Uint8Array(buf))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('');
-    }
 
     const handleAuthSubmit = async (e) => {
         e.preventDefault();
         setStatusMsg('');
-        const uname = authForm.username.trim().toLowerCase();
-        const finalDisplayName =
-            authForm.displayName.trim() || (authForm.gender === '♀' ? 'Cô Dâu' : 'Chú Rể');
+        const finalDisplayName = authForm.displayName.trim() ||
+            (authForm.gender === '♀' ? 'Cô Dâu' : 'Chú Rể');
 
         try {
-            const endpoint =
-                authMode === 'register'
-                    ? '/api/auth/register'
-                    : authMode === 'login'
-                        ? '/api/auth/login'
-                        : '/api/auth/reset-password';
+            const endpoint = authMode === 'register'
+                ? '/api/auth/register'
+                : authMode === 'login'
+                    ? '/api/auth/login'
+                    : '/api/auth/reset-password';
 
-            const bodyData = { ...authForm, displayName: finalDisplayName };
-            const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+            const response = await fetch(`${BACKEND_URL}${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyData)
+                body: JSON.stringify({ ...authForm, displayName: finalDisplayName })
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Lỗi xác thực');
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || `Máy chủ trả về lỗi ${response.status}.`);
+            }
 
             if (authMode === 'reset') {
-                setStatusMsg(data.message);
+                setStatusMsg(data.message || 'Đặt lại mật khẩu thành công.');
                 setAuthMode('login');
                 return;
             }
 
-            localStorage.setItem('dco_token', data.token);
-            persistUser({
-                ...data.user,
-                isGuest: false,
-                lastPosition: {
-                    x: Number(data.user?.lastPosition?.x) || 0,
-                    z: Number(data.user?.lastPosition?.z) || 8
-                }
-            });
-        } catch {
-            const key = `dco_user_${uname}`;
-            const existingRaw = localStorage.getItem(key);
-
-            if (authMode === 'register') {
-                if (existingRaw) {
-                    setStatusMsg('Tài khoản này đã tồn tại!');
-                    return;
-                }
-                const passHash = await sha256(authForm.password);
-                const pinHash = await sha256(authForm.recoveryPin);
-                const newUser = {
-                    isGuest: false,
-                    username: uname,
-                    passHash,
-                    pinHash,
-                    displayName: finalDisplayName,
-                    gender: authForm.gender,
-                    role: authForm.gender === '♀' ? 'bride' : 'groom',
-                    outfit: {
-                        hasCrown: true,
-                        primaryColor: '#ffffff',
-                        accentColor: '#ff69b4'
-                    },
-                    xuHy: 500000,
-                    fullness: 60,
-                    vowLuck: 15,
-                    inventory: ['Vương miện Hoàng Gia', 'Nhẫn Kim Cương', 'Phong bì Đỏ'],
-                    achievements: ['Khách mời danh dự'],
-                    friends: ['Chú Rể', 'Cô Dâu'],
-                    weddingHistory: [],
-                    lastPosition: { x: 0, z: 8 }
-                };
-                persistUser(newUser);
-            } else if (authMode === 'login') {
-                if (!existingRaw) {
-                    setStatusMsg('Tài khoản chưa được đăng ký!');
-                    return;
-                }
-                const saved = JSON.parse(existingRaw);
-                const passHash = await sha256(authForm.password);
-                if (saved.passHash !== passHash) {
-                    setStatusMsg('Mật khẩu không chính xác!');
-                    return;
-                }
-                persistUser({
-                    ...saved,
-                    isGuest: false,
-                    lastPosition: {
-                        x: Number(saved.lastPosition?.x) || 0,
-                        z: Number(saved.lastPosition?.z) || 8
-                    }
-                });
-            } else if (authMode === 'reset') {
-                if (!existingRaw) {
-                    setStatusMsg('Không tìm thấy tài khoản!');
-                    return;
-                }
-                const saved = JSON.parse(existingRaw);
-                const pinHash = await sha256(authForm.recoveryPin);
-                if (saved.pinHash !== pinHash) {
-                    setStatusMsg('Mã PIN khôi phục không đúng!');
-                    return;
-                }
-                saved.passHash = await sha256(authForm.newPassword);
-                localStorage.setItem(key, JSON.stringify(saved));
-                setStatusMsg('Đặt lại mật khẩu thành công! Mời bạn đăng nhập.');
-                setAuthMode('login');
+            if (!data.token || !data.user) {
+                throw new Error('Máy chủ không trả về token hoặc thông tin tài khoản.');
             }
+            localStorage.setItem('dco_token', data.token);
+            // Xóa bản ghi cũ từng tạo offline, có thể chứa hash mật khẩu/PIN.
+            localStorage.removeItem(`dco_user_${data.user.username}`);
+            const verifiedUser = { ...data.user, isGuest: false };
+            localStorage.setItem('dco_active_user', JSON.stringify(verifiedUser));
+            setCurrentRoom(verifiedUser.lastRoom || 'room_1');
+            setCurrentUser(verifiedUser);
+        } catch (error) {
+            // Tuyệt đối không đăng ký/đăng nhập giả bằng localStorage khi MongoDB bị lỗi.
+            const networkError = error instanceof TypeError;
+            setStatusMsg(networkError
+                ? 'Không kết nối được Backend. Kiểm tra API, biến môi trường và MongoDB.'
+                : (error.message || 'Không thể xác thực với máy chủ.'));
+            console.error('Lỗi đăng ký/đăng nhập:', error);
         }
     };
 
@@ -748,7 +722,18 @@ export default function App() {
                 simulatedBots={simulatedBots}
                 joystickDelta={joystickDeltaRef}
                 onMoveLocal={(pos) => {
-                    socketRef.current?.emit('move', pos);
+                    const now = Date.now();
+                    // Gửi tối đa 10 lần/giây: giảm tải khi nhiều người chơi.
+                    if (now - lastMoveSentAtRef.current >= 100) {
+                        lastMoveSentAtRef.current = now;
+                        socketRef.current?.emit('move', pos);
+                    }
+                    // Không ghi MongoDB theo từng frame; lưu tối đa một lần/10 giây.
+                    if (!currentUser.isGuest && now - lastPositionSaveAtRef.current >= 10000 &&
+                        Number.isFinite(pos?.x) && Number.isFinite(pos?.z)) {
+                        lastPositionSaveAtRef.current = now;
+                        persistUser({ ...currentUser, lastPosition: { x: pos.x, z: pos.z } });
+                    }
                 }}
                 onSeatClick={(seatKey, seatPos) => {
                     socketRef.current?.emit('claim_seat', { seatKey, seatPos });
@@ -831,6 +816,9 @@ export default function App() {
                                 </span>
                             )}
                         </div>
+                        <div style={{ fontSize: 11, marginTop: 3, color: socketStatus === 'connected' ? '#86efac' : '#fda4af' }}>
+                            {socketStatus === 'connected' ? '🟢 Đã vào phòng online' : socketStatus === 'connecting' ? '🟡 Đang kết nối phòng online...' : '🔴 Chưa kết nối realtime (chưa thấy người chơi khác)'}
+                        </div>
                         <div style={{ fontSize: 11.5, marginTop: 3 }}>
                             💰 <b>{currentUser.xuHy?.toLocaleString()}</b> | 🍗 No: <b>{currentUser.fullness}%</b>{' '}
                             | 🌸 Vía: <b>{currentUser.vowLuck}</b>
@@ -851,6 +839,8 @@ export default function App() {
                             value={currentRoom}
                             onChange={(e) => {
                                 setCurrentRoom(e.target.value);
+                                setRemotePlayers({});
+                                if (!currentUser.isGuest) persistUser({ ...currentUser, lastRoom: e.target.value });
                                 addLog(
                                     e.target.value === 'room_2'
                                         ? '🌸 Đã chuyển sang Map 2: Đám Cưới Rừng Hoa (Tối đa 500 người)!'
@@ -882,10 +872,10 @@ export default function App() {
                         <button
                             className="btn-gold"
                             onClick={() => {
-                                if (!currentUser.isGuest) {
-                                    localStorage.removeItem('dco_active_user');
-                                }
+                                localStorage.removeItem('dco_active_user');
+                                localStorage.removeItem('dco_token');
                                 setCurrentUser(null);
+                                setRemotePlayers({});
                             }}
                         >
                             Thoát
@@ -945,9 +935,12 @@ export default function App() {
                         <div className="action-buttons-scroll">
                             <button
                                 className="btn-gold"
-                                onClick={() =>
-                                    setCurrentRoom((prev) => (prev === 'room_1' ? 'room_2' : 'room_1'))
-                                }
+                                onClick={() => {
+                                    const nextRoom = currentRoom === 'room_1' ? 'room_2' : 'room_1';
+                                    setCurrentRoom(nextRoom);
+                                    setRemotePlayers({});
+                                    if (!currentUser.isGuest) persistUser({ ...currentUser, lastRoom: nextRoom });
+                                }}
                             >
                                 {currentRoom === 'room_1' ? '🌸 Sang Map Rừng Hoa' : '🏡 Về Map Nhà Quê'}
                             </button>

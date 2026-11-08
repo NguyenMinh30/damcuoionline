@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 
 const UserSchema = new mongoose.Schema(
@@ -9,18 +10,22 @@ const UserSchema = new mongoose.Schema(
         gender: { type: String, enum: ['♂', '♀'], default: '♂' },
         role: { type: String, enum: ['groom', 'bride', 'guest', 'tray'], default: 'groom' },
         outfit: {
-            style: { type: String, default: 'royal_wedding' }, // royal_wedding, ao_dai_do, vest_lich_lam, ba_ba
+            style: { type: String, default: 'royal_wedding' },
             primaryColor: { type: String, default: '#ffffff' },
             accentColor: { type: String, default: '#ff69b4' },
             hasCrown: { type: Boolean, default: true },
-            prop: { type: String, default: 'ring_box' } // ring_box, bouquet, wine_glass, tray
+            prop: { type: String, default: 'ring_box' }
         },
         xuHy: { type: Number, default: 500000 },
         fullness: { type: Number, default: 50 },
         vowLuck: { type: Number, default: 10 },
         inventory: {
             type: [String],
-            default: ['Vương miện Hoàng Gia', 'Nhẫn Kim Cương Vĩnh Cửu', 'Phong bì đỏ may mắn']
+            default: [
+                'Vương miện Hoàng Gia',
+                'Nhẫn Kim Cương Vĩnh Cửu',
+                'Phong bì đỏ may mắn'
+            ]
         },
         achievements: {
             type: [String],

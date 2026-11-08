@@ -7,12 +7,25 @@
         },
         "server": {
             "root": "server",
-            "framework": "express"
+            "framework": "express",
+            "entrypoint": "server.js"
         }
     },
     "rewrites": [
         {
             "source": "/api/(.*)",
+            "destination": {
+                "service": "server"
+            }
+        },
+        {
+            "source": "/socket.io/(.*)",
+            "destination": {
+                "service": "server"
+            }
+        },
+        {
+            "source": "/socket.io",
             "destination": {
                 "service": "server"
             }
