@@ -26,7 +26,7 @@ export default function App() {
     const [bouquetState, setBouquetState] = useState({ active: false, x: 0, z: 0 });
     const [chatInput, setChatInput] = useState('');
     const [eventLogs, setEventLogs] = useState([
-        '🎉 Chào mừng bạn đến với Đám Cưới Online (2 Map x 500 người chơi)!'
+        '🎉 Chào mừng bạn đến với Đám Cưới Online!'
     ]);
 
     const [coupleInfo, setCoupleInfo] = useState({
@@ -551,10 +551,9 @@ export default function App() {
             <div className="auth-backdrop">
                 <div className="auth-card">
                     <h2 style={{ color: '#fde047', textAlign: 'center', marginBottom: 6 }}>
-                        💒 ĐÁM CƯỚI ONLINE 3D
+                        💒 ĐÁM CƯỚI ONLINE
                     </h2>
                     <p style={{ textAlign: 'center', fontSize: 13, color: '#fbcfe8', marginBottom: 16 }}>
-                        2 Bản Đồ Đám Cưới: Nhà Quê Truyền Thống & Rừng Hoa Cổ Tích (2 Map x 500 CCU)
                     </p>
 
                     <div
@@ -575,7 +574,7 @@ export default function App() {
                                 marginBottom: 8
                             }}
                         >
-                            ⚡ VÀO CHƠI NGAY (KHÔNG LƯU TIẾN TRÌNH)
+                            ⚡ VÀO CHƠI NGAY
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button
@@ -707,7 +706,7 @@ export default function App() {
                             style={{ width: '100%', justifyContent: 'center', padding: 12 }}
                         >
                             {authMode === 'login'
-                                ? 'Đăng Nhập (Lưu Tiến Độ)'
+                                ? 'Đăng Nhập'
                                 : authMode === 'register'
                                     ? 'Đăng Ký Tài Khoản Mới'
                                     : 'Khôi Phục Mật Khẩu'}

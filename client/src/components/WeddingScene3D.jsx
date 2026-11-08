@@ -6,7 +6,7 @@ import { createChibiCharacterTexture } from '../utils/chibiRenderer';
 const NPCS = [
     {
         id: 'npc_co_ba',
-        displayName: 'Cô Ba Hàng Xóm',
+        displayName: 'Hàng Xóm',
         gender: '♀',
         role: 'guest',
         hasCrown: false,
@@ -14,14 +14,14 @@ const NPCS = [
         x: -5.2,
         z: 6.5,
         quotes: [
-            'Cháu ơi bao giờ tới lượt cháu cưới đây?',
-            'Lương tháng bao nhiêu rồi mà chưa dẫn người yêu về?',
-            'Ăn cỗ chăm chỉ vào cho sớm có tin vui nhé!'
+            'Cô dâu chú rể đẹp đôi quá, đúng là lứa đôi hoàn hảo nhất cái xóm này!',
+            'Đám cưới to và hoành tráng nhất khu phố rồi',
+            'Đúng là gái ngoan trai giỏi gặp nhau, nhìn hai đứa quá hợp nhau!'
         ]
     },
     {
         id: 'npc_chu_bay',
-        displayName: 'Chú Bảy Trưởng Họ',
+        displayName: 'Trưởng Họ',
         gender: '♂',
         role: 'guest',
         hasCrown: false,
@@ -30,8 +30,8 @@ const NPCS = [
         z: 5.0,
         quotes: [
             '1, 2, 3 Dzô! Trăm phần trăm nhé các cháu!',
-            'Cỗ quê mình hôm nay gà luộc xôi gấc ngon hết sảy!',
-            'Vào bàn ngồi nhanh kẻo hết ghế đẹp bây giờ!'
+            'Chú rể phong độ, cô dâu nết na, thật xứng danh con cháu gia đình có giáo dục!',
+            'Không khí hỉ sự tưng bừng thế này thì gia đình mình năm nay cầm chắc tài lộc, may mắn rồi'
         ]
     }
 ];
