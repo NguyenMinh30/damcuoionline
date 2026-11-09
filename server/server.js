@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -331,6 +330,13 @@ app.post('/api/user/save', async (req, res) => {
             }
         }
 
+        if (
+            safeUpdates.lastRoom &&
+            !['room_1', 'room_2'].includes(safeUpdates.lastRoom)
+        ) {
+            safeUpdates.lastRoom = 'room_1';
+        }
+
         const user = await User.findByIdAndUpdate(
             decoded.userId,
             { $set: safeUpdates },
@@ -380,8 +386,8 @@ function sanitizeUser(user) {
         achievements: user.achievements,
         friends: user.friends,
         weddingHistory: user.weddingHistory,
-        lastRoom: user.lastRoom,
-        lastPosition: user.lastPosition
+        lastRoom: user.lastRoom || 'room_1',
+        lastPosition: user.lastPosition || { x: 0, z: 8 }
     };
 }
 
@@ -457,6 +463,18 @@ io.on('connection', (socket) => {
 
         currentRoom = targetRoom;
         socket.join(currentRoom);
+
+        // Đồng bộ ngay lastRoom của người chơi vào MongoDB khi chuyển map
+        const userId = playerProfile?.id || playerProfile?._id;
+        if (!playerProfile?.isGuest && userId && mongoose.Types.ObjectId.isValid(userId)) {
+            ensureMongo()
+                .then(() =>
+                    User.findByIdAndUpdate(userId, {
+                        $set: { lastRoom: currentRoom }
+                    })
+                )
+                .catch((err) => console.error('Lỗi đồng bộ lastRoom:', err.message));
+        }
 
         const defaultName =
             playerProfile?.gender === '♀' ? 'Cô Dâu' : 'Chú Rể';

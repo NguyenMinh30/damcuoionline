@@ -61,6 +61,30 @@ export default function App() {
     const lastPositionSaveAtRef = useRef(0);
     const lastMoveSentAtRef = useRef(0);
 
+    // Giữ tham chiếu mới nhất của phòng và người chơi để tránh ghi đè state cũ (stale closure)
+    const currentRoomRef = useRef(currentRoom);
+    const currentUserRef = useRef(currentUser);
+
+    useEffect(() => {
+        currentRoomRef.current = currentRoom;
+    }, [currentRoom]);
+
+    useEffect(() => {
+        currentUserRef.current = currentUser;
+    }, [currentUser]);
+
+    // Tự động nhả focus khỏi <select> và <button> khi nhấn phím di chuyển để tránh bị đổi ngược lại map cũ
+    useEffect(() => {
+        const handleGlobalKeyDown = () => {
+            const tag = document.activeElement?.tagName;
+            if (['SELECT', 'BUTTON'].includes(tag)) {
+                document.activeElement.blur();
+            }
+        };
+        window.addEventListener('keydown', handleGlobalKeyDown, true);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+    }, []);
+
     const addLog = (msg) => {
         setEventLogs((prev) => [msg, ...prev.slice(0, 7)]);
     };
@@ -84,9 +108,12 @@ export default function App() {
                     throw new Error(data.error || 'Phiên đăng nhập không hợp lệ.');
                 }
                 if (cancelled) return;
-                const verifiedUser = { ...data.user, isGuest: false };
+                const initialRoom = data.user.lastRoom || 'room_1';
+                const verifiedUser = { ...data.user, lastRoom: initialRoom, isGuest: false };
+                currentRoomRef.current = initialRoom;
+                currentUserRef.current = verifiedUser;
+                setCurrentRoom(initialRoom);
                 setCurrentUser(verifiedUser);
-                setCurrentRoom(verifiedUser.lastRoom || 'room_1');
                 localStorage.setItem('dco_active_user', JSON.stringify(verifiedUser));
             } catch (error) {
                 if (cancelled) return;
@@ -97,9 +124,23 @@ export default function App() {
         return () => { cancelled = true; };
     }, []);
 
-    const persistUser = async (updatedUser) => {
-        setCurrentUser(updatedUser);
-        if (updatedUser.isGuest) return;
+    const persistUser = async (updatedFields) => {
+        const baseUser = currentUserRef.current || currentUser || {};
+        const resolvedRoom =
+            updatedFields?.lastRoom ||
+            currentRoomRef.current ||
+            baseUser.lastRoom ||
+            'room_1';
+
+        const mergedUser = {
+            ...baseUser,
+            ...updatedFields,
+            lastRoom: resolvedRoom
+        };
+
+        currentUserRef.current = mergedUser;
+        setCurrentUser(mergedUser);
+        if (mergedUser.isGuest) return;
 
         const token = localStorage.getItem('dco_token');
         if (!token) {
@@ -110,20 +151,63 @@ export default function App() {
         try {
             const res = await fetch(`${BACKEND_URL}/api/user/save`, {
                 method: 'POST',
+                keepalive: true,
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify(updatedUser)
+                body: JSON.stringify(mergedUser)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Không thể lưu dữ liệu.');
-            // Chỉ đánh dấu đã lưu khi API và MongoDB thực sự xác nhận.
-            localStorage.setItem('dco_active_user', JSON.stringify({ ...data.user, isGuest: false }));
+            const savedUser = {
+                ...data.user,
+                lastRoom: currentRoomRef.current || data.user.lastRoom || 'room_1',
+                isGuest: false
+            };
+            localStorage.setItem('dco_active_user', JSON.stringify(savedUser));
         } catch (error) {
             console.error('Lỗi lưu tiến độ lên MongoDB:', error);
             addLog(`⚠️ Chưa lưu được tiến độ lên máy chủ: ${error.message}`);
         }
+    };
+
+    const handleSwitchRoom = (nextRoom, event) => {
+        if (event?.currentTarget) {
+            event.currentTarget.blur();
+        }
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+        if (!nextRoom || nextRoom === currentRoomRef.current) return;
+
+        currentRoomRef.current = nextRoom;
+        setCurrentRoom(nextRoom);
+        setRemotePlayers({});
+
+        const updatedUser = {
+            ...(currentUserRef.current || currentUser),
+            lastRoom: nextRoom
+        };
+        currentUserRef.current = updatedUser;
+        setCurrentUser(updatedUser);
+
+        if (socketRef.current?.connected) {
+            socketRef.current.emit('join_room', {
+                roomId: nextRoom,
+                playerProfile: updatedUser
+            });
+        }
+
+        if (!updatedUser.isGuest) {
+            persistUser({ lastRoom: nextRoom });
+        }
+
+        addLog(
+            nextRoom === 'room_2'
+                ? '🌸 Đã chuyển sang Map 2: Đám Cưới Rừng Hoa (Tối đa 500 người)!'
+                : '🏡 Đã chuyển sang Map 1: Đám Cưới Nhà Quê (Tối đa 500 người)!'
+        );
     };
 
     const handleQuickPlay = (selectedGender = '♂') => {
@@ -147,15 +231,19 @@ export default function App() {
             achievements: ['Khách Chơi Ngay'],
             friends: [],
             weddingHistory: [],
+            lastRoom: 'room_1',
             lastPosition: { x: 0, z: 8 }
         };
 
+        currentRoomRef.current = 'room_1';
+        currentUserRef.current = guestUser;
+        setCurrentRoom('room_1');
         setCurrentUser(guestUser);
         addLog('⚡ Bạn đang ở chế độ Chơi Ngay (Tiến trình sẽ không được lưu khi thoát).');
     };
 
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser?.username) return;
 
         const socket = io(BACKEND_URL || window.location.origin, {
             transports: ['websocket'],
@@ -166,7 +254,10 @@ export default function App() {
 
         socket.on('connect', () => {
             setSocketStatus('connecting');
-            socket.emit('join_room', { roomId: currentRoom, playerProfile: currentUser });
+            socket.emit('join_room', {
+                roomId: currentRoomRef.current || 'room_1',
+                playerProfile: currentUserRef.current || currentUser
+            });
         });
         socket.on('connect_error', (err) => {
             setSocketStatus('offline');
@@ -180,6 +271,10 @@ export default function App() {
 
         socket.on('room_state', (data) => {
             setSocketStatus('connected');
+            if (data.roomId && data.roomId !== currentRoomRef.current) {
+                currentRoomRef.current = data.roomId;
+                setCurrentRoom(data.roomId);
+            }
             const others = { ...data.players };
             delete others[socket.id];
             setRemotePlayers(others);
@@ -190,7 +285,11 @@ export default function App() {
 
         socket.on('player_joined', (p) => {
             setRemotePlayers((prev) => ({ ...prev, [p.id]: p }));
-            addLog(`👋 ${p.displayName} vừa bước vào ${currentRoom === 'room_2' ? 'Rừng Hoa' : 'Rạp Cưới Quê'}!`);
+            addLog(
+                `👋 ${p.displayName} vừa bước vào ${
+                    currentRoomRef.current === 'room_2' ? 'Rừng Hoa' : 'Rạp Cưới Quê'
+                }!`
+            );
         });
 
         socket.on('player_moved', (p) => {
@@ -226,20 +325,28 @@ export default function App() {
 
             if (socket.id === groomPos.id) {
                 setStageTeleportTrigger({ x: groomPos.x, z: groomPos.z, t: Date.now() });
-                setCurrentUser((prev) => ({
-                    ...prev,
-                    role: 'groom',
-                    outfit: { ...prev.outfit, hasCrown: true, primaryColor: '#ffffff' },
-                    chatText: `💍 Anh đồng ý! Mãi yêu ${couple.brideName}!`
-                }));
+                setCurrentUser((prev) => {
+                    const next = {
+                        ...prev,
+                        role: 'groom',
+                        outfit: { ...prev.outfit, hasCrown: true, primaryColor: '#ffffff' },
+                        chatText: `💍 Anh đồng ý! Mãi yêu ${couple.brideName}!`
+                    };
+                    currentUserRef.current = next;
+                    return next;
+                });
             } else if (socket.id === bridePos.id) {
                 setStageTeleportTrigger({ x: bridePos.x, z: bridePos.z, t: Date.now() });
-                setCurrentUser((prev) => ({
-                    ...prev,
-                    role: 'bride',
-                    outfit: { ...prev.outfit, hasCrown: true, primaryColor: '#ffffff' },
-                    chatText: `💍 Em đồng ý! Trăm năm hạnh phúc bên ${couple.groomName}!`
-                }));
+                setCurrentUser((prev) => {
+                    const next = {
+                        ...prev,
+                        role: 'bride',
+                        outfit: { ...prev.outfit, hasCrown: true, primaryColor: '#ffffff' },
+                        chatText: `💍 Em đồng ý! Trăm năm hạnh phúc bên ${couple.groomName}!`
+                    };
+                    currentUserRef.current = next;
+                    return next;
+                });
             }
 
             setRemotePlayers((prev) => {
@@ -298,7 +405,7 @@ export default function App() {
             socket.disconnect();
             if (socketRef.current === socket) socketRef.current = null;
         };
-    }, [currentUser?.username, currentRoom]);
+    }, [currentUser?.username]);
 
     const handleAuthSubmit = async (e) => {
         e.preventDefault();
@@ -334,14 +441,15 @@ export default function App() {
                 throw new Error('Máy chủ không trả về token hoặc thông tin tài khoản.');
             }
             localStorage.setItem('dco_token', data.token);
-            // Xóa bản ghi cũ từng tạo offline, có thể chứa hash mật khẩu/PIN.
             localStorage.removeItem(`dco_user_${data.user.username}`);
-            const verifiedUser = { ...data.user, isGuest: false };
+            const initialRoom = data.user.lastRoom || 'room_1';
+            const verifiedUser = { ...data.user, lastRoom: initialRoom, isGuest: false };
             localStorage.setItem('dco_active_user', JSON.stringify(verifiedUser));
-            setCurrentRoom(verifiedUser.lastRoom || 'room_1');
+            currentRoomRef.current = initialRoom;
+            currentUserRef.current = verifiedUser;
+            setCurrentRoom(initialRoom);
             setCurrentUser(verifiedUser);
         } catch (error) {
-            // Tuyệt đối không đăng ký/đăng nhập giả bằng localStorage khi MongoDB bị lỗi.
             const networkError = error instanceof TypeError;
             setStatusMsg(networkError
                 ? 'Không kết nối được Backend. Kiểm tra API, biến môi trường và MongoDB.'
@@ -385,7 +493,6 @@ export default function App() {
             t: Date.now()
         });
         persistUser({
-            ...currentUser,
             role: isPlayerMale ? 'groom' : 'bride',
             outfit: { ...currentUser.outfit, hasCrown: true, primaryColor: '#ffffff' },
             chatText: `💍 Sánh đôi cùng ${partnerName}!`
@@ -395,44 +502,38 @@ export default function App() {
     };
 
     const handleEatFeast = () => {
-        const updated = {
-            ...currentUser,
+        persistUser({
             fullness: Math.min(100, (currentUser.fullness || 50) + 20),
             xuHy: currentUser.xuHy + 20000,
             chatText: '🍗 Gà luộc lá chanh + xôi gấc ngon tuyệt!'
-        };
-        persistUser(updated);
+        });
         addLog('🍗 Bạn vừa thưởng thức mâm cỗ (+20% No bụng, +20.000 Xu Hỷ)!');
     };
 
     const handleToast = () => {
-        const updated = {
-            ...currentUser,
+        const toastText = '🍻 1, 2, 3 Dzôôô! Trăm năm hạnh phúc!';
+        persistUser({
             action: 'toast',
-            chatText: '🍻 1, 2, 3 Dzôôô! Trăm năm hạnh phúc!'
-        };
-        persistUser(updated);
-        socketRef.current?.emit('chat', { text: updated.chatText });
+            chatText: toastText
+        });
+        socketRef.current?.emit('chat', { text: toastText });
     };
 
     const handleDance = () => {
         const nextAction = currentUser.action === 'dance' ? 'idle' : 'dance';
-        const updated = {
-            ...currentUser,
+        persistUser({
             action: nextAction,
             chatText: nextAction === 'dance' ? '💃 Nhạc đám cưới cực sung!' : ''
-        };
-        persistUser(updated);
+        });
     };
 
     const handlePrayVow = () => {
-        const updated = {
-            ...currentUser,
-            vowLuck: (currentUser.vowLuck || 10) + 15,
+        const nextLuck = (currentUser.vowLuck || 10) + 15;
+        persistUser({
+            vowLuck: nextLuck,
             chatText: '🌸 Xin vía năm nay thoát ế, cưới liền tay!'
-        };
-        persistUser(updated);
-        addLog(`🌸 Điểm Duyên Phận của bạn tăng lên ${updated.vowLuck} điểm!`);
+        });
+        addLog(`🌸 Điểm Duyên Phận của bạn tăng lên ${nextLuck} điểm!`);
     };
 
     const handleSendGift = (e) => {
@@ -442,8 +543,7 @@ export default function App() {
             alert('Số dư Xu Hỷ của bạn không đủ!');
             return;
         }
-        const updated = {
-            ...currentUser,
+        persistUser({
             xuHy: currentUser.xuHy - amount,
             weddingHistory: [
                 {
@@ -455,8 +555,7 @@ export default function App() {
                 },
                 ...(currentUser.weddingHistory || [])
             ]
-        };
-        persistUser(updated);
+        });
         setTotalGiftPot((p) => p + amount);
         socketRef.current?.emit('send_gift', giftForm);
         addLog(
@@ -729,10 +828,14 @@ export default function App() {
                         socketRef.current?.emit('move', pos);
                     }
                     // Không ghi MongoDB theo từng frame; lưu tối đa một lần/10 giây.
-                    if (!currentUser.isGuest && now - lastPositionSaveAtRef.current >= 10000 &&
+                    const activeUser = currentUserRef.current || currentUser;
+                    if (!activeUser?.isGuest && now - lastPositionSaveAtRef.current >= 10000 &&
                         Number.isFinite(pos?.x) && Number.isFinite(pos?.z)) {
                         lastPositionSaveAtRef.current = now;
-                        persistUser({ ...currentUser, lastPosition: { x: pos.x, z: pos.z } });
+                        persistUser({
+                            lastPosition: { x: pos.x, z: pos.z },
+                            lastRoom: currentRoomRef.current
+                        });
                     }
                 }}
                 onSeatClick={(seatKey, seatPos) => {
@@ -742,14 +845,12 @@ export default function App() {
                 onCatchBouquet={() => {
                     setBouquetState({ active: false, x: 0, z: 0 });
                     socketRef.current?.emit('catch_bouquet');
-                    const updated = {
-                        ...currentUser,
+                    persistUser({
                         vowLuck: (currentUser.vowLuck || 10) + 50,
                         achievements: Array.from(
                             new Set([...(currentUser.achievements || []), 'Trùm Bắt Hoa Cưới'])
                         )
-                    };
-                    persistUser(updated);
+                    });
                     addLog('💐 Chúc mừng! Bạn đã bắt được hoa cưới (+50 Điểm Xin Vía)!');
                 }}
                 bouquetState={bouquetState}
@@ -837,16 +938,7 @@ export default function App() {
                         {/* Chọn nhanh giữa Map 1 (Nhà Quê) và Map 2 (Rừng Hoa) */}
                         <select
                             value={currentRoom}
-                            onChange={(e) => {
-                                setCurrentRoom(e.target.value);
-                                setRemotePlayers({});
-                                if (!currentUser.isGuest) persistUser({ ...currentUser, lastRoom: e.target.value });
-                                addLog(
-                                    e.target.value === 'room_2'
-                                        ? '🌸 Đã chuyển sang Map 2: Đám Cưới Rừng Hoa (Tối đa 500 người)!'
-                                        : '🏡 Đã chuyển sang Map 1: Đám Cưới Nhà Quê (Tối đa 500 người)!'
-                                );
-                            }}
+                            onChange={(e) => handleSwitchRoom(e.target.value, e)}
                             style={{
                                 background: '#1f122b',
                                 color: '#fde047',
@@ -871,7 +963,10 @@ export default function App() {
                         </button>
                         <button
                             className="btn-gold"
-                            onClick={() => {
+                            onClick={async () => {
+                                if (currentUserRef.current && !currentUserRef.current.isGuest) {
+                                    await persistUser({ lastRoom: currentRoomRef.current });
+                                }
                                 localStorage.removeItem('dco_active_user');
                                 localStorage.removeItem('dco_token');
                                 setCurrentUser(null);
@@ -935,11 +1030,9 @@ export default function App() {
                         <div className="action-buttons-scroll">
                             <button
                                 className="btn-gold"
-                                onClick={() => {
+                                onClick={(e) => {
                                     const nextRoom = currentRoom === 'room_1' ? 'room_2' : 'room_1';
-                                    setCurrentRoom(nextRoom);
-                                    setRemotePlayers({});
-                                    if (!currentUser.isGuest) persistUser({ ...currentUser, lastRoom: nextRoom });
+                                    handleSwitchRoom(nextRoom, e);
                                 }}
                             >
                                 {currentRoom === 'room_1' ? '🌸 Sang Map Rừng Hoa' : '🏡 Về Map Nhà Quê'}
@@ -985,10 +1078,10 @@ export default function App() {
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 if (!chatInput.trim()) return;
-                                const updated = { ...currentUser, chatText: chatInput.trim() };
-                                persistUser(updated);
-                                socketRef.current?.emit('chat', { text: chatInput.trim() });
-                                addLog(`💬 ${currentUser.displayName}: ${chatInput.trim()}`);
+                                const text = chatInput.trim();
+                                persistUser({ chatText: text });
+                                socketRef.current?.emit('chat', { text });
+                                addLog(`💬 ${currentUser.displayName}: ${text}`);
                                 setChatInput('');
                             }}
                             style={{ display: 'flex', gap: 6 }}
@@ -1095,14 +1188,13 @@ export default function App() {
                         <input
                             className="input-field"
                             value={currentUser.displayName}
-                            onChange={(e) => persistUser({ ...currentUser, displayName: e.target.value })}
+                            onChange={(e) => persistUser({ displayName: e.target.value })}
                         />
                         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                             <button
                                 className="btn-gold"
                                 onClick={() =>
                                     persistUser({
-                                        ...currentUser,
                                         gender: '♂',
                                         role: 'groom',
                                         displayName:
@@ -1117,7 +1209,6 @@ export default function App() {
                                 className="btn-pink"
                                 onClick={() =>
                                     persistUser({
-                                        ...currentUser,
                                         gender: '♀',
                                         role: 'bride',
                                         displayName:
@@ -1134,7 +1225,6 @@ export default function App() {
                                 className="btn-gold"
                                 onClick={() =>
                                     persistUser({
-                                        ...currentUser,
                                         role: 'tray',
                                         outfit: { ...currentUser.outfit, primaryColor: '#ef4444' }
                                     })
@@ -1146,7 +1236,6 @@ export default function App() {
                                 className="btn-gold"
                                 onClick={() =>
                                     persistUser({
-                                        ...currentUser,
                                         outfit: { ...currentUser.outfit, hasCrown: !currentUser.outfit?.hasCrown }
                                     })
                                 }
